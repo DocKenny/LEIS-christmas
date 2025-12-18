@@ -1,0 +1,63 @@
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.container {
+  padding: 20px;
+  background:  	#273e06;
+  border-radius: 12px;
+  box-shadow: 0 0px 30px rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+}
+
+/* buttons row */
+.btns {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* grid area (pixel grid + color picker) */
+.grid-container {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+/* keep the pixel grid from shrinking; reserve space for color picker */
+.grid-container>*:first-child {
+  flex: 0 0 auto;
+}
+
+.grid-container>*:last-child {
+  flex: 0 0 220px;
+  min-width: 160px;
+}
+
+/* responsive */
+@media (max-width: 700px) {
+  .container {
+    padding: 12px;
+  }
+
+  .grid-container {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .grid-container>*:last-child {
+    width: 100%;
+    max-width: 320px;
+  }
+}
+
+.grid {
+  margin-left: 20px;
+  margin-right: 20px;
+}
+

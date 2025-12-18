@@ -1,0 +1,41 @@
+.grid-wrapper {
+    position: relative;
+}
+
+.pixelGrid {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    border-radius: 20px;
+    /* inner curve */
+    overflow: hidden;
+    /* CRITICAL */
+}
+
+.grid-frame {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 20;
+}
+
+.grid-frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 10px solid #5e0d0c;
+    border-radius: 20px;
+    pointer-events: none;
+
+    /* Multi-layer shadows for depth and glow */
+    box-shadow:
+        inset 1px 1px 0px rgba(255, 255, 255, 0.25),
+        /* highlight edge */
+        inset 0 0 6px #a23227,
+        /* inner glow */
+        inset 0 2px 80px -40px #ac3223,
+        /* gradient/depth */
+        1px 1px 3px rgba(0, 0, 0, 0.75);
+    /* outer shadow */
+}

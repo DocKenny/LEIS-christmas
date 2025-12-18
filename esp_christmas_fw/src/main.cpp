@@ -16,14 +16,15 @@
 #define NUM_LEDS 64
 #define BUTTON_PIN 0 // TODO: Choose the correct pin
 
+bool isLastPacket = true;
+volatile bool requestNextPacket = false;
+
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 CRGB leds[NUM_LEDS];
 
 uint8_t pixelData[BUFFER_COUNT][MAX_IMAGES][NUM_LEDS * 3];
-// volatile uint8_t pixelData1[MAX_IMAGES][NUM_LEDS * 3] = {2};
-// volatile uint8_t pixelData2[MAX_IMAGES][NUM_LEDS * 3] = {3};
 
 DeviceState state = IDLE;
 
@@ -103,7 +104,7 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) {
         if (client.connect("ESP32Client")) {
           client.subscribe("image/hsv");
-          client.publish("esp32/request", "{\"request\":\"state\"}");
+          sendStateRequest();
           stateTimestamp = millis();
           state = WAITING_RESPONSE;
         }
@@ -112,13 +113,21 @@ void loop() {
 
     case WAITING_RESPONSE:
       if (responseReceived) {
-        disconnectAll();
+
+        if (requestNextPacket && !isLastPacket) {
+          sendStateRequest();
+          requestNextPacket = false;
+        }
+
+        if (isLastPacket) {
+          state = DONE;
+        }
         responseReceived = false;
-        state = DONE;
       }
       break;
 
     case DONE:
+      disconnectAll();
       state = IDLE;
       break;
   }
@@ -143,6 +152,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   imageCountBuf[buf] = 0;
   fpsBuf[buf] = doc["fps"] | 20;
+  isLastPacket = doc["isLastPacket"] | true;
 
   int brightness = doc["brightness"] | 255;
   FastLED.setBrightness(brightness);
@@ -160,7 +170,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     imageCountBuf[buf]++;
   }
 
-  swapBuffers();            // 🔥 atomic switch
+  swapBuffers();            // 🔥🔥🔥🔥🔥 atomic switch
   responseReceived = true;
 }
 
@@ -229,6 +239,9 @@ void ledTask(void* param) {
         currentImage++;
         if (currentImage >= count) {
           currentImage = 0;
+          if (!isLastPacket) {
+            requestNextPacket = true;
+          }
         }
       }
     }

@@ -1,5 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
+
+#define MQTT_MAX_PACKET_SIZE 16384  // 16 KB
+
 #include <PubSubClient.h>
 #include <FastLED.h>
 #include <ArduinoJson.h>
@@ -14,7 +17,7 @@
 
 #define LED_PIN 3
 #define NUM_LEDS 64
-#define BUTTON_PIN 0 // TODO: Choose the correct pin
+#define BUTTON_PIN 5 // TODO: Choose the correct pin
 
 bool isLastPacket = true;
 volatile bool requestNextPacket = false;
@@ -60,6 +63,8 @@ void swapBuffers();
 
 void ledTask(void* param);
 
+void mqttLoopTask(void* param);
+
 void setup() {
   Serial.begin(115200);
 
@@ -72,6 +77,7 @@ void setup() {
 
   client.setServer(BROKER_IP, BROKER_PORT);
   client.setCallback(mqttCallback);
+  client.setBufferSize(MQTT_MAX_PACKET_SIZE);
 
   bufferMutex = xSemaphoreCreateMutex();
 
@@ -85,13 +91,24 @@ void setup() {
     0   // Core 0 (WiFi runs on core 1)
   );
 
+  xTaskCreatePinnedToCore(
+    mqttLoopTask,
+    "MQTT Loop",
+    10000,
+    nullptr,
+    2,
+    nullptr,
+    1 // Core 1 (Wi-Fi)
+  );
+
   Serial.println("Setup complete");
 }
 
 
 void loop() {
-  client.loop();
-
+  // if(WiFi.status() == WL_CONNECTED && client.connected()) {
+  //       client.loop(); // safe, only one call
+  // }
   switch (state) {
     case IDLE:
       if (buttonPressed()) {
@@ -103,6 +120,7 @@ void loop() {
     case CONNECTING:
       if (WiFi.status() == WL_CONNECTED) {
         if (client.connect("ESP32Client")) {
+          Serial.println("MQTT connected");
           client.subscribe("image/hsv");
           sendStateRequest();
           stateTimestamp = millis();
@@ -140,37 +158,91 @@ void sendStateRequest() {
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  
   if (strcmp(topic, "image/hsv") != 0) return;
 
-  StaticJsonDocument<16384> doc;
-  if (deserializeJson(doc, payload, length)) {
-    Serial.println("JSON parse failed");
+  char json[length + 1];
+  memcpy(json, payload, length);
+  json[length] = '\0';
+
+  DynamicJsonDocument doc(16384);
+  DeserializationError err = deserializeJson(doc, json);
+  
+  if (err) {
+    Serial.print("JSON parse failed: ");
+    Serial.println(err.c_str());
     return;
   }
 
   uint8_t buf = writeBuffer;
-
   imageCountBuf[buf] = 0;
+  
   fpsBuf[buf] = doc["fps"] | 20;
   isLastPacket = doc["isLastPacket"] | true;
-
-  int brightness = doc["brightness"] | 255;
+  
+  int brightness = doc["brightness"] | 100;
   FastLED.setBrightness(brightness);
 
+  // Try to get images (plural) first
   JsonArray images = doc["images"];
-  for (JsonArray image : images) {
-    if (imageCountBuf[buf] >= MAX_IMAGES) break;
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-      JsonArray hsv = image[i];
-      pixelData[buf][imageCountBuf[buf]][i*3 + 0] = hsv[0];
-      pixelData[buf][imageCountBuf[buf]][i*3 + 1] = hsv[1];
-      pixelData[buf][imageCountBuf[buf]][i*3 + 2] = hsv[2];
+  
+  if (images.isNull()) {
+    // Fall back to single image (singular)
+    JsonArray singleImage = doc["image"];
+    
+    if (!singleImage.isNull()) {
+      // Convert single image to array of one image for consistency
+      JsonArray tempImages;
+      images = tempImages;
+      images.add(singleImage);
+    } else {
+      Serial.println("No 'image' or 'images' found in JSON");
+      return;
     }
-    imageCountBuf[buf]++;
   }
 
-  swapBuffers();            // 🔥🔥🔥🔥🔥 atomic switch
+  // Now process images array (could have 1 or more images)
+  for (JsonVariant imageVar : images) {
+    if (imageCountBuf[buf] >= MAX_IMAGES) {
+      Serial.println("Max images reached, skipping rest");
+      break;
+    }
+    
+    JsonArray image = imageVar.as<JsonArray>();
+    
+    if (image.isNull()) {
+      Serial.println("Invalid image format");
+      continue;
+    }
+    
+    Serial.print("Processing image ");
+    Serial.print(imageCountBuf[buf]);
+    Serial.print(" with ");
+    Serial.print(image.size());
+    Serial.println(" pixels");
+    
+    // Process pixels
+    for (int i = 0; i < NUM_LEDS && i < image.size(); i++) {
+      JsonArray hsv = image[i].as<JsonArray>();
+      
+      if (hsv.size() >= 3) {
+        pixelData[buf][imageCountBuf[buf]][i*3 + 0] = hsv[0].as<uint8_t>();
+        pixelData[buf][imageCountBuf[buf]][i*3 + 1] = hsv[1].as<uint8_t>();
+        pixelData[buf][imageCountBuf[buf]][i*3 + 2] = hsv[2].as<uint8_t>();
+      }
+    }
+    
+    imageCountBuf[buf]++;
+  }
+  
+  Serial.print("Received ");
+  Serial.print(imageCountBuf[buf]);
+  Serial.println(" images");
+  
+  swapBuffers();
   responseReceived = true;
 }
 
@@ -211,6 +283,15 @@ void swapBuffers() {
   xSemaphoreGive(bufferMutex);
 }
 
+void mqttLoopTask(void* param) {
+    for (;;) {
+        if(WiFi.status() == WL_CONNECTED && client.connected()) {
+            client.loop();  // single-threaded access
+        }
+        vTaskDelay(pdMS_TO_TICKS(1)); // yield to other tasks
+    }
+}
+
 
 void ledTask(void* param) {
   uint16_t currentImage = 0;
@@ -220,7 +301,7 @@ void ledTask(void* param) {
     uint8_t buf = activeBuffer;
     uint16_t count = imageCountBuf[buf];
     uint16_t fpsLocal = fpsBuf[buf];
-
+    //Serial.println("LED Task: ");
     if (count > 0) {
       unsigned long frameInterval = 1000 / fpsLocal;
 

@@ -4,22 +4,60 @@ import '../../public/styles/pixelGrid.css'
 const SIZE = 8;
 const pixelSize = 100;
 
-export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal }) {
+export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, undoSign, redoSign }) {
     const [pixels, setPixels] = useState(
         Array(SIZE * SIZE).fill('#ffffff')
     );
     const [isDrawing, setIsDrawing] = useState(false);
+
+    const [past, setPast] = useState([]);
+    const [future, setFuture] = useState([]);
 
     const setPixel = (i) => {
         setPixels(prev => {
             const copy = [...prev];
             copy[i] = color;
             return copy;
-        })
-    }
+        });
+    };
+
+    const beginStroke = () => {
+        setPast(prev => [...prev, [...pixels]]);
+        setFuture([]); // clear redo stack
+        setIsDrawing(true);
+    };
+
+    const undo = () => {
+        setPast(prev => {
+            if (prev.length === 0) return prev;
+
+            const previous = prev[prev.length - 1];
+
+            setFuture(f => [[...pixels], ...f]);
+            setPixels(previous);
+
+            return prev.slice(0, -1);
+        });
+    };
+
+
+    const redo = () => {
+        setFuture(prev => {
+            if (prev.length === 0) return prev;
+
+            const next = prev[0];
+
+            setPast(p => [...p, pixels]);
+            setPixels(next);
+
+            return prev.slice(1);
+        });
+    };
+
 
     useEffect(() => {
         if (clearSignal) {
+            setFuture([]);
             setPixels(Array(SIZE * SIZE).fill("#ffffff"));
         }
     }, [clearSignal]);
@@ -38,21 +76,35 @@ export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal }
 
             const parse = JSON.parse(saved);
             if (parse.length === SIZE * SIZE) {
+                setPast([]);
+                setFuture([]);
                 setPixels(parse);
             }
         }
     }, [loadSignal]);
 
+    useEffect(() => {
+        if (undoSign) {
+            undo()
+        }
+    }, [undoSign]);
+
+    useEffect(() => {
+        if (redoSign) {
+            redo()
+        }
+    }, [redoSign]);
+
     return (
         <div className="grid-wrapper"
             style={{
-                width: `calc(${SIZE} * ${pixelSize+0.2}px)`,
-                height: `calc(${SIZE} * ${pixelSize+2}px)`
+                width: `calc(${SIZE} * ${pixelSize + 0.2}px)`,
+                height: `calc(${SIZE} * ${pixelSize + 2}px)`
             }}
         >
             <div className="grid-frame" />
             <div className="pixelGrid"
-                onMouseDown={() => setIsDrawing(true)}
+                onMouseDown={beginStroke}
                 onMouseUp={() => setIsDrawing(false)}
                 onMouseLeave={() => setIsDrawing(false)}
                 style={{

@@ -27,6 +27,8 @@ def downscale_video(input_path, output_path_pattern, frame_limit):
     if not cap.isOpened():
         raise ValueError(f"Could not open the video file {input_path}")
 
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 200) # Start frame
+
     frame_count = 0
     all_hsv_pixels = []
 
@@ -66,17 +68,17 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Image
-    payload = downscale_image(args.input_path, args.output_path)
-    print("payload size:", len(payload))
-    client = connect_mqtt()
-    send_payload(client, "image/hsv", payload)
-
-    # # Video
-    # payload = downscale_video(args.input_path, "downscaled_frame_{}.png", frame_limit=10)
+    # # Image
+    # payload = downscale_image(args.input_path, args.output_path)
     # print("payload size:", len(payload))
     # client = connect_mqtt()
-    # send_payload(client, "video/hsv", payload)
+    # send_payload(client, "image/hsv", payload)
+
+    # Video
+    payload = downscale_video(args.input_path, "video/downscaled_frame_{}.png", frame_limit=20)
+    print("payload size:", len(payload))
+    client = connect_mqtt()
+    send_payload(client, "video/hsv", payload)
 
 
 

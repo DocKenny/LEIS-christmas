@@ -14,3 +14,4 @@ build/
 *.egg-info/
 
 shrek.mp4
+video/downscaled_frame_*.png

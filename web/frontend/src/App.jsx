@@ -15,47 +15,49 @@ function App() {
   const [redoSignal, setRedoSignal] = useState(0);
 
   // Handle file upload for Load button
-  const handleLoadFile = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*,video/*';
-    
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+const handleLoadFile = () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*,video/*';
+  
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-      const formData = new FormData();
-      formData.append('file', file);
+    const formData = new FormData();
+    formData.append('file', file);
 
-      // Determine if it's an image or video
-      const isVideo = file.type.startsWith('video/');
-      const endpoint = isVideo ? '/api/upload/video' : '/api/upload/image';
+    // Determine if it's an image or video
+    // GIFs are images by MIME type but should be processed as videos
+    const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+    const isVideo = file.type.startsWith('video/') || isGif;
+    const endpoint = isVideo ? '/api/upload/video' : '/api/upload/image';
 
-      try {
-        const response = await fetch(`http://localhost:5000${endpoint}`, {
-          method: 'POST',
-          body: formData
-        });
+    try {
+      const response = await fetch(`http://localhost:5000${endpoint}`, {
+        method: 'POST',
+        body: formData
+      });
 
-        const data = await response.json();
-        
-        if (response.ok) {
-          console.log('File uploaded successfully:', data);
-          alert(`${isVideo ? 'Video' : 'Image'} uploaded and processing started!`);
-          // Trigger the load signal to update the grid
-          setLoadSignal(v => v + 1);
-        } else {
-          console.error('Upload failed:', data);
-          alert(`Upload failed: ${data.error}`);
-        }
-      } catch (error) {
-        console.error('Error uploading file:', error);
-        alert('Error uploading file. Make sure the backend is running.');
+      const data = await response.json();
+      
+      if (response.ok) {
+        console.log('File uploaded successfully:', data);
+        alert(`${isVideo ? 'Video' : 'Image'} uploaded and processing started!`);
+        // Trigger the load signal to update the grid
+        setLoadSignal(v => v + 1);
+      } else {
+        console.error('Upload failed:', data);
+        alert(`Upload failed: ${data.error}`);
       }
-    };
-
-    input.click();
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert('Error uploading file. Make sure the backend is running.');
+    }
   };
+
+  input.click();
+};
 
   // // Handle save - this would typically save the current grid state
   // const handleSave = async () => {

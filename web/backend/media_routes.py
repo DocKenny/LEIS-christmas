@@ -2,34 +2,67 @@ from flask import request, jsonify, current_app
 from werkzeug.utils import secure_filename
 import os
 from mqtt_client import MQTTClientManager
-from media_processor import downscale_image, downscale_video
+from media_processor import downscale_gif, downscale_image, downscale_video
 import threading
+
+def build_packet(images, brightness=50, fps=5, isLastPacket=False):
+    return {
+        "brightness": brightness,
+        "fps": fps,
+        "isLastPacket": isLastPacket,
+        "chunk": 0,
+        "images": images
+    }
+
 
 def allowed_file(filename, allowed_extensions):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
-def process_and_send_media(file_path, media_type, mqtt_client, config):
-    """Background task to process and send media"""
+def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2):
     try:
+        brightness = config.get("brightness", 50)
+        fps = config.get("fps", 5)
+
         if media_type == 'image':
-            hsv_data = downscale_image(file_path)
-            mqtt_client.publish("image/hsv", hsv_data)
-            print(f"Sent image with {len(hsv_data)} pixels")
-        
+            hsv_data = downscale_image(file_path, "./downscaled_image.png")
+
+            packet = build_packet(
+                images=[hsv_data],  # single frame wrapped in list
+                brightness=brightness,
+                fps=fps,
+                isLastPacket=True
+            )
+
+            mqtt_client.publish("image/hsv", packet)
+            print(f"Sent image packet with {len(hsv_data)} pixels")
+
         elif media_type == 'video':
-            frame_limit = config.get('frame_limit', 20)
+            frame_limit = config.get('frame_limit', 5)
             start_frame = config.get('start_frame', 0)
-            hsv_data = downscale_video(file_path, frame_limit, start_frame)
-            mqtt_client.publish("video/hsv", hsv_data)
-            print(f"Sent video with {len(hsv_data)} frames")
-    
+
+            print(frame_limit)
+            if file_path.lower().endswith('.gif'):
+                hsv_frames = downscale_gif(file_path, gamma=gamma)
+            else:
+                hsv_frames = downscale_video(file_path, frame_limit, start_frame, gamma=gamma)
+
+            packet = build_packet(
+                images=hsv_frames,
+                brightness=brightness,
+                fps=fps,
+                isLastPacket=False
+            )
+
+            mqtt_client.publish("image/hsv", packet)
+            print(f"Sent video packet with {len(hsv_frames)} frames")
+
     except Exception as e:
         print(f"Error processing media: {e}")
     finally:
-        # Clean up uploaded file
         if os.path.exists(file_path):
             os.remove(file_path)
+
 
 def init_routes(app):
     mqtt_manager = MQTTClientManager(
@@ -59,16 +92,22 @@ def init_routes(app):
             return jsonify({'error': 'No selected file'}), 400
         
         if not allowed_file(file.filename, current_app.config['ALLOWED_IMAGE_EXTENSIONS']):
-            return jsonify({'error': 'Invalid file type'}), 400
+            return jsonify({'error': 'Invalid file typ1e'}), 400
         
         filename = secure_filename(file.filename)
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
         # Process in background
+        brightness = request.form.get("brightness", 50, type=int)
+        fps = request.form.get("fps", 20, type=int)
+
         thread = threading.Thread(
             target=process_and_send_media,
-            args=(file_path, 'image', mqtt_manager, {})
+            args=(file_path, 'image', mqtt_manager, {
+                "brightness": brightness,
+                "fps": fps
+            })
         )
         thread.start()
         
@@ -90,17 +129,22 @@ def init_routes(app):
             return jsonify({'error': 'Invalid file type'}), 400
         
         # Get optional parameters
-        frame_limit = request.form.get('frame_limit', 20, type=int)
-        start_frame = request.form.get('start_frame', 0, type=int)
+        frame_limit = request.form.get('frame_limit', 15, type=int)
+        start_frame = request.form.get('start_frame', 968, type=int)
         
         filename = secure_filename(file.filename)
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
         # Process in background
+        brightness = request.form.get("brightness", 50, type=int)
+        fps = request.form.get("fps", 20, type=int)
+
         config = {
             'frame_limit': frame_limit,
-            'start_frame': start_frame
+            'start_frame': start_frame,
+            'brightness': brightness,
+            'fps': fps
         }
         thread = threading.Thread(
             target=process_and_send_media,

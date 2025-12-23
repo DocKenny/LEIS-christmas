@@ -10,8 +10,8 @@ def create_app(mqtt_broker='192.168.1.199', test_config=None):
         DATABASE=os.path.join(app.instance_path, 'backend.sqlite'),
         UPLOAD_FOLDER=os.path.join(app.instance_path, 'uploads'),
         MAX_CONTENT_LENGTH=100 * 1024 * 1024,  # 100MB max file size
-        ALLOWED_IMAGE_EXTENSIONS={'png', 'jpg', 'jpeg', 'gif', 'bmp'},
-        ALLOWED_VIDEO_EXTENSIONS={'mp4', 'avi', 'mov', 'mkv', 'webm'},
+        ALLOWED_IMAGE_EXTENSIONS={'png', 'jpg', 'jpeg', 'bmp'},
+        ALLOWED_VIDEO_EXTENSIONS={'mp4', 'avi', 'mov', 'mkv', 'webm', 'gif'},
         MQTT_BROKER=mqtt_broker,
         MQTT_PORT=1883
     )

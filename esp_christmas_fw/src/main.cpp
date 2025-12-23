@@ -87,7 +87,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     mqttLoopTask,
     "MQTT Loop",
-    10000,
+    20000,
     nullptr,
     2,
     nullptr,
@@ -131,8 +131,8 @@ void loop() {
       break;
 
     case WAITING_RESPONSE:
-      // Timeout after 10 seconds
-      if (millis() - stateTimestamp > 10000) {
+      // Timeout after 1 minute
+      if (millis() - stateTimestamp > 60000) {
         Serial.println("Response timeout");
         state = DONE;
       }
@@ -356,7 +356,7 @@ void ledTask(void* param) {
           uint8_t h = pixelData[buf][currentImage][i*3 + 0];
           uint8_t s = pixelData[buf][currentImage][i*3 + 1];
           uint8_t v = pixelData[buf][currentImage][i*3 + 2];
-          leds[i] = CHSV(h, s, v);
+          leds[i] = CRGB(h, s, v);
         }
 
         FastLED.show();

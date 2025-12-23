@@ -87,7 +87,7 @@ void setup() {
   xTaskCreatePinnedToCore(
     mqttLoopTask,
     "MQTT Loop",
-    20000,
+    40000,
     nullptr,
     2,
     nullptr,

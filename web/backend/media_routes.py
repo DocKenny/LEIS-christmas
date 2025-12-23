@@ -22,22 +22,30 @@ def allowed_file(filename, allowed_extensions):
 def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2):
     try:
         brightness = config.get("brightness", 50)
-        fps = config.get("fps", 5)
+        fps = config.get("fps", 2)
 
         if media_type == 'image':
-            hsv_data = downscale_image(file_path, "./downscaled_image.png")
+            rgb_data = downscale_image(file_path, "./downscaled_image.png")
 
+            # build numeric packet for MQTT (devices may expect numeric RGB tuples)
             packet = build_packet(
-                images=[hsv_data],  # single frame wrapped in list
+                images=[rgb_data],  # single frame wrapped in list
                 brightness=brightness,
                 fps=fps,
                 isLastPacket=True
             )
-
+            with open(file_path + ".json", 'w') as f:
+                import json
+                json.dump(packet, f)
             mqtt_client.publish("image/hsv", packet)
-            print(f"Sent image packet with {len(hsv_data)} pixels")
-            
-            return {"pixelData":hsv_data}
+            print(f"Sent image packet with {len(rgb_data)} pixels")
+
+            def rgb_to_hex(rgb):
+                r, g, b = rgb
+                return '#{0:02x}{1:02x}{2:02x}'.format(int(r), int(g), int(b))
+
+            hex_pixels = [rgb_to_hex(px) for px in rgb_data]
+            return {"pixelData": hex_pixels}
 
         elif media_type == 'video':
             frame_limit = config.get('frame_limit', 5)
@@ -45,7 +53,7 @@ def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2
 
             print(frame_limit)
             if file_path.lower().endswith('.gif'):
-                hsv_frames = downscale_gif(file_path, gamma=gamma)
+                hsv_frames = downscale_gif(file_path, frame_limit=20, gamma=gamma)
             else:
                 hsv_frames = downscale_video(file_path, frame_limit, start_frame, gamma=gamma)
 
@@ -55,6 +63,10 @@ def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2
                 fps=fps,
                 isLastPacket=False
             )
+            # Save packet to json file
+            with open(file_path + ".json", 'w') as f:
+                import json
+                json.dump(packet, f)
 
             mqtt_client.publish("image/hsv", packet)
             print(f"Sent video packet with {len(hsv_frames)} frames")
@@ -73,9 +85,19 @@ def init_routes(app):
     )
     mqtt_manager.connect()
     
-    @app.route('/hello')
-    def hello():
-        return 'Hello, World!'
+    @app.route('/api//toPixelGrid', methods=['GET'])
+    def toPixelGrid():
+        file = request.files['file']
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+        rgb_data = downscale_image(file_path, "./downscaled_image.png")
+        def rgb_to_hex(rgb):
+            r, g, b = rgb
+            return '#{0:02x}{1:02x}{2:02x}'.format(int(r), int(g), int(b))
+
+        hex_pixels = [rgb_to_hex(px) for px in rgb_data]
+        return {"pixelData": hex_pixels}
     
     @app.route('/api/status', methods=['GET'])
     def status():
@@ -100,19 +122,25 @@ def init_routes(app):
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
-        # Process in background
+        # Process synchronously for images so the frontend receives pixelData
         brightness = request.form.get("brightness", 50, type=int)
         fps = request.form.get("fps", 20, type=int)
 
-        thread = threading.Thread(
-            target=process_and_send_media,
-            args=(file_path, 'image', mqtt_manager, {
+        result = process_and_send_media(
+            file_path, 'image', mqtt_manager, {
                 "brightness": brightness,
                 "fps": fps
-            })
+            }
         )
-        thread.start()
-        
+
+        # result may contain 'pixelData' (hex strings) for the frontend
+        if result and isinstance(result.get('pixelData'), list):
+            return jsonify({
+                'message': 'Image uploaded and processed',
+                'filename': filename,
+                'pixelData': result['pixelData']
+            }), 200
+
         return jsonify({
             'message': 'Image uploaded and processing started',
             'filename': filename

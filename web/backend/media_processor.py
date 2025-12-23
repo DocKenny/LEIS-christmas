@@ -66,16 +66,33 @@ def downscale_video(input_path: str, frame_limit: int = 20, start_frame: int = 0
     cap.release()
     return all_rgb_pixels
 
-def downscale_gif(input_path, gamma=2.2):
+def downscale_gif(
+    input_path: str,
+    frame_limit: int = 20,
+    start_frame: int = 0,
+    gamma: float = 2.2
+):
     img = Image.open(input_path)
     frames = []
-    for frame in range(img.n_frames):
-        img.seek(frame)
+
+    total_frames = img.n_frames
+    end_frame = min(start_frame + frame_limit, total_frames)
+
+    for frame_idx in range(start_frame, end_frame):
+        img.seek(frame_idx)
         frame_rgb = img.convert("RGB").resize((8, 8))
+
         pixels = [
-            [gamma_correct(r, gamma), gamma_correct(g, gamma), gamma_correct(b, gamma)]
+            [
+                gamma_correct(r, gamma),
+                gamma_correct(g, gamma),
+                gamma_correct(b, gamma)
+            ]
             for r, g, b in frame_rgb.getdata()
         ]
+
         frames.append(pixels)
+
     return frames
+
 

@@ -6,13 +6,12 @@ import '../public/styles/App.css'
 import '../public/styles/button.css'
 
 function App() {
-  const API_BASE = 'http://localhost:5123';
+  const API_BASE = 'http://localhost:5000';
 
   const [color, setColor] = useState("#000000");
   const [clearSignal, setClearSignal] = useState(0);
   const [undoSignal, setUndoSignal] = useState(0);
   const [redoSignal, setRedoSignal] = useState(0);
-  const [updatePixels, setuUdatePixels] = useState(0);
   const [pixels, setPixels] = useState(
     Array(SIZE * SIZE).fill('#ffffff')
   );
@@ -50,7 +49,12 @@ function App() {
           alert(`${isVideo ? 'Video' : 'Image'} uploaded and processing started!`);
           // Trigger the load signal to update the grid
           // setLoadSignal(v => v + 1);
-          updatePixels(response.pixelData);
+          // Safely apply pixels from server if present and valid
+          if (Array.isArray(data.pixelData) && data.pixelData.length === SIZE * SIZE) {
+            setPixels(data.pixelData);
+          } else {
+            console.warn('Server did not return valid pixelData; keeping current grid.', data);
+          }
         } else {
           console.error('Upload failed:', data);
           alert(`Upload failed: ${data.error}`);
@@ -64,116 +68,7 @@ function App() {
     input.click();
   };
 
-  // const handleUpload = async () => {
-  //   function savePixelsAsPNG(pixels, scale = 32) {
-  //     const canvas = document.createElement("canvas");
-  //     canvas.width = SIZE * scale;
-  //     canvas.height = SIZE * scale;
 
-  //     const ctx = canvas.getContext("2d");
-
-  //     pixels.forEach((color, i) => {
-  //       const x = (i % SIZE) * scale;
-  //       const y = Math.floor(i / SIZE) * scale;
-
-  //       ctx.fillStyle = color;
-  //       ctx.fillRect(x, y, scale, scale);
-  //     });
-  //   }
-
-  //   savePixelsAsPNG(pixels);
-  //   const formData = new FormData();
-  //   formData.append("file", "pixel-art.png");
-
-  //   try {
-  //     const response = await fetch(`${API_BASE}/api/upload/image`, {
-  //       method: "POST",
-  //       body: formData
-  //     });
-
-  //     const data = await response.json();
-
-  //     if (!response.ok) {
-  //       console.error("Upload failed:", data);
-  //       return;
-  //     }
-
-  //     console.log("Uploaded PNG successfully:", data);
-
-  //     // optional: load processed pixels back
-  //     if (data.pixelData) {
-  //       setPixels(data.pixelData);
-  //     }
-  //   } catch (err) {
-  //     console.error("Upload error:", err);
-  //   }
-
-  //   // // ⬇️ THIS is the key difference
-  //   // canvas.toBlob(async (blob) => {
-  //   //   if (!blob) return;
-
-  //   //   const formData = new FormData();
-  //   //   formData.append("file", blob, "pixel-art.png");
-
-  //   //   try {
-  //   //     const response = await fetch(`${API_BASE}/api/upload/image`, {
-  //   //       method: "POST",
-  //   //       body: formData
-  //   //     });
-
-  //   //     const data = await response.json();
-
-  //   //     if (!response.ok) {
-  //   //       console.error("Upload failed:", data);
-  //   //       return;
-  //   //     }
-
-  //   //     console.log("Uploaded PNG successfully:", data);
-
-  //   //     // optional: load processed pixels back
-  //   //     if (data.pixelData) {
-  //   //       setPixels(data.pixelData);
-  //   //     }
-  //   //   } catch (err) {
-  //   //     console.error("Upload error:", err);
-  //   //   }
-  //   // }, "image/png");
-  // };
-
-
-  // // Handle save - this would typically save the current grid state
-  // const handleSave = async () => {
-  //   try {
-  //     const response = await fetch('http://localhost:5000/api/send/custom', {
-  //       method: 'POST',
-  //       headers: {
-  //         'Content-Type': 'application/json',
-  //       },
-  //       body: JSON.stringify({
-  //         topic: 'grid/save',
-  //         payload: {
-  //           timestamp: new Date().toISOString(),
-  //           // Add your grid data here
-  //         }
-  //       })
-  //     });
-
-  //     const data = await response.json();
-
-  //     if (response.ok) {
-  //       console.log('Grid saved successfully:', data);
-  //       alert('Grid saved successfully!');
-  //     } else {
-  //       console.error('Save failed:', data);
-  //       alert(`Save failed: ${data.error}`);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error saving:', error);
-  //     alert('Error saving. Make sure the backend is running.');
-  //   }
-
-  //   setSaveSignal(v => v + 1);
-  // };
   const handleUpload = async () => {
     const canvas = document.createElement("canvas");
     const scale = 32;
@@ -219,10 +114,15 @@ function App() {
 
         if (response.ok) {
           console.log('File uploaded successfully:', data);
-          alert(`${isVideo ? 'Video' : 'Image'} uploaded and processing started!`);
+          alert('Image uploaded and processing started!');
           // Trigger the load signal to update the grid
           // setLoadSignal(v => v + 1);
-          updatePixels(response.pixelData);
+          // Safely apply pixels from server if present and valid
+          if (Array.isArray(data.pixelData) && data.pixelData.length === SIZE * SIZE) {
+            setPixels(data.pixelData);
+          } else {
+            console.warn('Server did not return valid pixelData; keeping current grid.', data);
+          }
         } else {
           console.error('Upload failed:', data);
           alert(`Upload failed: ${data.error}`);
@@ -238,7 +138,7 @@ function App() {
     <div className='container'>
       <div className='grid-container'>
         <div className='grid'>
-          <PixelGrid color={color} clearSignal={clearSignal} undoSign={undoSignal} redoSign={redoSignal} updatePixels={updatePixels} pixels={pixels} setPixels={setPixels} />
+          <PixelGrid color={color} clearSignal={clearSignal} undoSign={undoSignal} redoSign={redoSignal} pixels={pixels} setPixels={setPixels} />
         </div>
 
         <div className='tool-bar'>

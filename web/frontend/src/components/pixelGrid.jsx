@@ -4,11 +4,7 @@ import '../../public/styles/pixelGrid.css'
 export const SIZE = 8;
 export const SCALE = 100;
 
-export function getPixelData() {
-
-}
-
-export default function PixelGrid({ color, clearSignal, undoSign, redoSign, updatePixels, pixels, setPixels }) {
+export default function PixelGrid({ color, clearSignal, undoSign, redoSign, pixels, setPixels }) {
 
     const [isDrawing, setIsDrawing] = useState(false);
 
@@ -98,10 +94,10 @@ export default function PixelGrid({ color, clearSignal, undoSign, redoSign, upda
     }, [redoSign]);
 
     useEffect(() => {
-        if (!Array.isArray(updatePixels)) return;
-        if (updatePixels.length !== SIZE * SIZE) return;
-        setPixels(updatePixels);
-    }, [updatePixels])
+        if (!Array.isArray(pixels)) return;
+        if (pixels.length !== SIZE * SIZE) return;
+        setPixels(pixels);
+    }, [pixels, setPixels])
 
     return (
         <div className="grid-wrapper"

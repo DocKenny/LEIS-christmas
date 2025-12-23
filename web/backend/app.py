@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 import threading
 
-def create_app(test_config=None):
+def create_app(mqtt_broker='192.168.1.199', test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
         SECRET_KEY='dev',
@@ -12,7 +12,7 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=100 * 1024 * 1024,  # 100MB max file size
         ALLOWED_IMAGE_EXTENSIONS={'png', 'jpg', 'jpeg', 'gif', 'bmp'},
         ALLOWED_VIDEO_EXTENSIONS={'mp4', 'avi', 'mov', 'mkv', 'webm'},
-        MQTT_BROKER='192.168.1.199',
+        MQTT_BROKER=mqtt_broker,
         MQTT_PORT=1883
     )
     

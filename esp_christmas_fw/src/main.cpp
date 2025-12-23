@@ -54,6 +54,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 void connectWiFiAndMQTT();
 void disconnectAll();
 void swapBuffers();
+void clearAllBuffers();
 void ledTask(void* param);
 void mqttLoopTask(void* param);
 
@@ -100,18 +101,24 @@ void loop() {
   switch (state) {
     case IDLE:
       if (buttonPressed()) {
-        // Reset movie state
-        videoComplete = false;
+        clearAllBuffers();
         currentChunk = 0;
         isLastPacket = false;
         requestNextPacket = false;
         
         connectWiFiAndMQTT();
         state = CONNECTING;
+        stateTimestamp = millis();
       }
       break;
 
     case CONNECTING:
+      // Timeout after 10 seconds
+      if (millis() - stateTimestamp > 10000) {
+        Serial.println("Connection timeout");
+        state = DONE;
+      }
+      
       if (WiFi.status() == WL_CONNECTED) {
         if (client.connect("ESP32Client")) {
           Serial.println("MQTT connected");
@@ -124,9 +131,19 @@ void loop() {
       break;
 
     case WAITING_RESPONSE:
+      // Timeout after 10 seconds
+      if (millis() - stateTimestamp > 10000) {
+        Serial.println("Response timeout");
+        state = DONE;
+      }
+      
       if (responseReceived) {
         if (!videoComplete) {
           sendStateRequest();
+          stateTimestamp = millis(); // Reset timeout
+        } else {
+          state = DONE;
+          Serial.println("Video complete, disconnecting...");
         }
         responseReceived = false;
       }
@@ -140,13 +157,19 @@ void loop() {
 }
 
 void sendStateRequest() {
-  // Request specific chunk with sequence number
   char request[64];
   snprintf(request, sizeof(request), 
            "{\"request\":\"state\", \"chunk\":%lu}", currentChunk);
-  client.publish("esp32/request/state", request);
-  Serial.print("Requested chunk ");
-  Serial.println(currentChunk);
+  
+  Serial.print("Publishing to topic 'esp32/request/state': ");
+  Serial.println(request);
+  
+  bool success = client.publish("esp32/request/state", request);
+  if (success) {
+    Serial.println("Publish successful");
+  } else {
+    Serial.println("Publish failed!");
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -177,7 +200,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   
   // Extract chunk info
   uint32_t chunkNumber = doc["chunk"] | 0;
-  bool isFirstChunk = doc["isFirstChunk"] | false;
+  bool isFirstChunk = (chunkNumber == 0);
   
   int brightness = doc["brightness"] | 50;
   FastLED.setBrightness(brightness);
@@ -229,6 +252,14 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print(" with ");
   Serial.print(imageCountBuf[buf]);
   Serial.println(" frames");
+
+  if (imageCountBuf[buf] > 0) {
+    uint8_t oldActive = activeBuffer;
+    imageCountBuf[oldActive] = 0;
+    
+    swapBuffers();
+    Serial.println("Swapped buffers after receiving first chunk");
+  }
   
   if (isLastPacket) {
     videoComplete = true;
@@ -238,6 +269,24 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   }
   
   responseReceived = true;
+}
+
+void clearAllBuffers() {
+  xSemaphoreTake(bufferMutex, portMAX_DELAY);
+  
+  // Clear both buffers
+  imageCountBuf[0] = 0;
+  imageCountBuf[1] = 0;
+  
+  // Reset buffer indices
+  activeBuffer = 0;
+  writeBuffer = 1;
+  
+  videoComplete = false;
+
+  xSemaphoreGive(bufferMutex);
+  
+  Serial.println("All buffers cleared");
 }
 
 void connectWiFiAndMQTT() {
@@ -288,7 +337,7 @@ void mqttLoopTask(void* param) {
 }
 
 void ledTask(void* param) {
-  uint16_t currentImage = 0;
+  static uint16_t currentImage = 0;
   unsigned long lastFrameTime = 0;
 
   for (;;) {
@@ -319,14 +368,17 @@ void ledTask(void* param) {
           // Check if other buffer has data
           uint8_t otherBuf = !buf;  // The other buffer
           if (imageCountBuf[otherBuf] > 0) {
-            // Other buffer has data, swap to it
             swapBuffers();
+            currentImage = 0;  // Reset when swapping
             Serial.print("Swapped to buffer with ");
             Serial.print(imageCountBuf[otherBuf]);
             Serial.println(" frames");
           }
         }
       }
+    } else {
+      // If buffer is empty, reset currentImage
+      currentImage = 0;
     }
 
     vTaskDelay(pdMS_TO_TICKS(1));

@@ -19,7 +19,7 @@
 #define NUM_LEDS 64
 #define BUTTON_PIN 5 // TODO: Choose the correct pin
 
-bool isLastPacket = true;
+bool isLastPacket = false;
 volatile bool requestNextPacket = false;
 
 WiFiClient espClient;
@@ -31,11 +31,6 @@ uint8_t pixelData[BUFFER_COUNT][MAX_IMAGES][NUM_LEDS * 3];
 
 DeviceState state = IDLE;
 
-uint16_t imageCount = 0;
-uint16_t currentImage = 0;
-uint16_t fps = 20;
-unsigned long lastFrameTime = 0;
-
 unsigned long stateTimestamp = 0;
 bool responseReceived = false;
 
@@ -45,24 +40,21 @@ volatile uint8_t writeBuffer  = 1;     // used by MQTT callback
 volatile uint16_t imageCountBuf[BUFFER_COUNT] = {0, 0};
 volatile uint16_t fpsBuf[BUFFER_COUNT] = {20, 20};
 
+// Track which chunk we're on
+volatile uint32_t currentChunk = 0;
+volatile bool videoComplete = false;
+
 SemaphoreHandle_t bufferMutex;
 
 TaskHandle_t ledTaskHandle = nullptr;
 
 bool buttonPressed();
-
 void sendStateRequest();
-
 void mqttCallback(char* topic, byte* payload, unsigned int length);
-
 void connectWiFiAndMQTT();
-
 void disconnectAll();
-
 void swapBuffers();
-
 void ledTask(void* param);
-
 void mqttLoopTask(void* param);
 
 void setup() {
@@ -104,14 +96,16 @@ void setup() {
   Serial.println("Setup complete");
 }
 
-
 void loop() {
-  // if(WiFi.status() == WL_CONNECTED && client.connected()) {
-  //       client.loop(); // safe, only one call
-  // }
   switch (state) {
     case IDLE:
       if (buttonPressed()) {
+        // Reset movie state
+        videoComplete = false;
+        currentChunk = 0;
+        isLastPacket = false;
+        requestNextPacket = false;
+        
         connectWiFiAndMQTT();
         state = CONNECTING;
       }
@@ -131,14 +125,8 @@ void loop() {
 
     case WAITING_RESPONSE:
       if (responseReceived) {
-
-        if (requestNextPacket && !isLastPacket) {
+        if (!videoComplete) {
           sendStateRequest();
-          requestNextPacket = false;
-        }
-
-        if (isLastPacket) {
-          state = DONE;
         }
         responseReceived = false;
       }
@@ -151,10 +139,14 @@ void loop() {
   }
 }
 
-
 void sendStateRequest() {
-  const char* request = "{\"request\":\"state\"}";
+  // Request specific chunk with sequence number
+  char request[64];
+  snprintf(request, sizeof(request), 
+           "{\"request\":\"state\", \"chunk\":%lu}", currentChunk);
   client.publish("esp32/request/state", request);
+  Serial.print("Requested chunk ");
+  Serial.println(currentChunk);
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
@@ -181,20 +173,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   imageCountBuf[buf] = 0;
   
   fpsBuf[buf] = doc["fps"] | 20;
-  isLastPacket = doc["isLastPacket"] | true;
+  isLastPacket = doc["isLastPacket"] | false;
   
-  int brightness = doc["brightness"] | 100;
+  // Extract chunk info
+  uint32_t chunkNumber = doc["chunk"] | 0;
+  bool isFirstChunk = doc["isFirstChunk"] | false;
+  
+  int brightness = doc["brightness"] | 50;
   FastLED.setBrightness(brightness);
 
-  // Try to get images (plural) first
   JsonArray images = doc["images"];
   
   if (images.isNull()) {
-    // Fall back to single image (singular)
     JsonArray singleImage = doc["image"];
     
     if (!singleImage.isNull()) {
-      // Convert single image to array of one image for consistency
       JsonArray tempImages;
       images = tempImages;
       images.add(singleImage);
@@ -204,7 +197,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     }
   }
 
-  // Now process images array (could have 1 or more images)
   for (JsonVariant imageVar : images) {
     if (imageCountBuf[buf] >= MAX_IMAGES) {
       Serial.println("Max images reached, skipping rest");
@@ -217,12 +209,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println("Invalid image format");
       continue;
     }
-    
-    Serial.print("Processing image ");
-    Serial.print(imageCountBuf[buf]);
-    Serial.print(" with ");
-    Serial.print(image.size());
-    Serial.println(" pixels");
     
     // Process pixels
     for (int i = 0; i < NUM_LEDS && i < image.size(); i++) {
@@ -238,14 +224,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     imageCountBuf[buf]++;
   }
   
-  Serial.print("Received ");
+  Serial.print("Received chunk ");
+  Serial.print(chunkNumber);
+  Serial.print(" with ");
   Serial.print(imageCountBuf[buf]);
-  Serial.println(" images");
+  Serial.println(" frames");
   
-  swapBuffers();
+  if (isLastPacket) {
+    videoComplete = true;
+    Serial.println("Video complete - last packet received");
+  } else {
+    currentChunk++;
+  }
+  
   responseReceived = true;
 }
-
 
 void connectWiFiAndMQTT() {
   Serial.println("Connecting WiFi...");
@@ -281,6 +274,8 @@ void swapBuffers() {
   writeBuffer = tmp;
 
   xSemaphoreGive(bufferMutex);
+  
+  Serial.println("Buffers swapped");
 }
 
 void mqttLoopTask(void* param) {
@@ -292,7 +287,6 @@ void mqttLoopTask(void* param) {
     }
 }
 
-
 void ledTask(void* param) {
   uint16_t currentImage = 0;
   unsigned long lastFrameTime = 0;
@@ -301,13 +295,14 @@ void ledTask(void* param) {
     uint8_t buf = activeBuffer;
     uint16_t count = imageCountBuf[buf];
     uint16_t fpsLocal = fpsBuf[buf];
-    //Serial.println("LED Task: ");
+    
     if (count > 0) {
       unsigned long frameInterval = 1000 / fpsLocal;
 
       if (millis() - lastFrameTime >= frameInterval) {
         lastFrameTime = millis();
 
+        // Display current frame
         for (int i = 0; i < NUM_LEDS; i++) {
           uint8_t h = pixelData[buf][currentImage][i*3 + 0];
           uint8_t s = pixelData[buf][currentImage][i*3 + 1];
@@ -320,15 +315,20 @@ void ledTask(void* param) {
         currentImage++;
         if (currentImage >= count) {
           currentImage = 0;
-          if (!isLastPacket) {
-            requestNextPacket = true;
+          
+          // Check if other buffer has data
+          uint8_t otherBuf = !buf;  // The other buffer
+          if (imageCountBuf[otherBuf] > 0) {
+            // Other buffer has data, swap to it
+            swapBuffers();
+            Serial.print("Swapped to buffer with ");
+            Serial.print(imageCountBuf[otherBuf]);
+            Serial.println(" frames");
           }
         }
       }
     }
 
-    vTaskDelay(pdMS_TO_TICKS(1)); // yield
+    vTaskDelay(pdMS_TO_TICKS(1));
   }
 }
-
-

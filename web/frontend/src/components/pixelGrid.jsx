@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
 import '../../public/styles/pixelGrid.css'
 
-const SIZE = 8;
-const pixelSize = 100;
+export const SIZE = 8;
+export const SCALE = 100;
 
-export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, undoSign, redoSign }) {
-    const [pixels, setPixels] = useState(
-        Array(SIZE * SIZE).fill('#ffffff')
-    );
+export function getPixelData() {
+
+}
+
+export default function PixelGrid({ color, clearSignal, undoSign, redoSign, updatePixels, pixels, setPixels }) {
+
     const [isDrawing, setIsDrawing] = useState(false);
 
     const [past, setPast] = useState([]);
@@ -62,26 +64,26 @@ export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, 
         }
     }, [clearSignal]);
 
-    useEffect(() => {
-        if (saveSignal) {
-            const data = JSON.stringify(pixels);
-            localStorage.setItem("pixelGrid", data);
-        }
-    }, [saveSignal]);
+    // useEffect(() => {
+    //     if (saveSignal) {
+    //         const data = JSON.stringify(pixels);
+    //         localStorage.setItem("pixelGrid", data);
+    //     }
+    // }, [saveSignal]);
 
-    useEffect(() => {
-        if (loadSignal) {
-            const saved = localStorage.getItem("pixelGrid");
-            if (!saved) return;
+    // useEffect(() => {
+    //     if (loadSignal) {
+    //         const saved = localStorage.getItem("pixelGrid");
+    //         if (!saved) return;
 
-            const parse = JSON.parse(saved);
-            if (parse.length === SIZE * SIZE) {
-                setPast([]);
-                setFuture([]);
-                setPixels(parse);
-            }
-        }
-    }, [loadSignal]);
+    //         const parse = JSON.parse(saved);
+    //         if (parse.length === SIZE * SIZE) {
+    //             setPast([]);
+    //             setFuture([]);
+    //             setPixels(parse);
+    //         }
+    //     }
+    // }, [loadSignal]);
 
     useEffect(() => {
         if (undoSign) {
@@ -95,11 +97,17 @@ export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, 
         }
     }, [redoSign]);
 
+    useEffect(() => {
+        if (!Array.isArray(updatePixels)) return;
+        if (updatePixels.length !== SIZE * SIZE) return;
+        setPixels(updatePixels);
+    }, [updatePixels])
+
     return (
         <div className="grid-wrapper"
             style={{
-                width: `calc(${SIZE} * ${pixelSize + 0.2}px)`,
-                height: `calc(${SIZE} * ${pixelSize + 2}px)`
+                width: `calc(${SIZE} * ${SCALE + 0.2}px)`,
+                height: `calc(${SIZE} * ${SCALE + 2}px)`
             }}
         >
             <div className="grid-frame" />
@@ -109,7 +117,7 @@ export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, 
                 onMouseLeave={() => setIsDrawing(false)}
                 style={{
                     display: "grid",
-                    gridTemplateColumns: `repeat(${SIZE}, ${pixelSize}px)`,
+                    gridTemplateColumns: `repeat(${SIZE}, ${SCALE}px)`,
                     userSelect: "none"
                 }}
             >
@@ -119,8 +127,8 @@ export default function PixelGrid({ color, clearSignal, saveSignal, loadSignal, 
                         onMouseDown={() => setPixel(i)}
                         onMouseEnter={() => isDrawing && setPixel(i)}
                         style={{
-                            width: `${pixelSize}px`,
-                            height: `${pixelSize}px`,
+                            width: `${SCALE}px`,
+                            height: `${SCALE}px`,
                             backgroundColor: color,
                             border: "1px solid #333",
                             cursor: "pointer",

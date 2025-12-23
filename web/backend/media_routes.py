@@ -36,6 +36,8 @@ def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2
 
             mqtt_client.publish("image/hsv", packet)
             print(f"Sent image packet with {len(hsv_data)} pixels")
+            
+            return {"pixelData":hsv_data}
 
         elif media_type == 'video':
             frame_limit = config.get('frame_limit', 5)

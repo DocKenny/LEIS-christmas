@@ -5,6 +5,8 @@ from mqtt_client import MQTTClientManager
 from media_processor import downscale_gif, downscale_image, downscale_video
 import threading
 
+DOWNSCALE_DIR = './web/backend/instance/downscale/'
+
 def build_packet(images, brightness=50, fps=5, isLastPacket=False):
     return {
         "brightness": brightness,
@@ -20,12 +22,15 @@ def allowed_file(filename, allowed_extensions):
            filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
 def process_and_send_media(file_path, media_type, mqtt_client, config, gamma=2.2):
+    DOWNSCALE_IMG_PATH = "downscaled_image.png"
+    os.makedirs(DOWNSCALE_DIR, exist_ok=True)
+
     try:
         brightness = config.get("brightness", 50)
         fps = config.get("fps", 2)
 
         if media_type == 'image':
-            rgb_data = downscale_image(file_path, "./downscaled_image.png")
+            rgb_data = downscale_image(file_path, os.path.join(DOWNSCALE_DIR, DOWNSCALE_IMG_PATH))
 
             # build numeric packet for MQTT (devices may expect numeric RGB tuples)
             packet = build_packet(
@@ -85,19 +90,9 @@ def init_routes(app):
     )
     mqtt_manager.connect()
     
-    @app.route('/api//toPixelGrid', methods=['GET'])
-    def toPixelGrid():
-        file = request.files['file']
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        rgb_data = downscale_image(file_path, "./downscaled_image.png")
-        def rgb_to_hex(rgb):
-            r, g, b = rgb
-            return '#{0:02x}{1:02x}{2:02x}'.format(int(r), int(g), int(b))
-
-        hex_pixels = [rgb_to_hex(px) for px in rgb_data]
-        return {"pixelData": hex_pixels}
+    @app.route('/hello')
+    def hello():
+        return "Hello world"
     
     @app.route('/api/status', methods=['GET'])
     def status():
